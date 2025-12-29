@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HinataFocus - おひさま専用タイマー</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans JP', sans-serif; }
+        .progress-ring__circle {
+            transition: stroke-dashoffset 1s linear;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+        input[type="range"] {
+            accent-color: #7CC7E8;
+        }
+    </style>
+</head>
+<body class="bg-[#EBF8FF] min-h-screen flex items-center justify-center p-4">
+
+    <div id="app" class="w-full max-w-md bg-white rounded-[2.5rem] shadow-2xl overflow-hidden relative border-4 border-white">
+        <!-- Header -->
+        <div class="p-6 text-white bg-[#7CC7E8] relative overflow-hidden">
+            <div class="flex justify-between items-center relative z-10">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="sun" class="text-[#FDB813] fill-[#FDB813]"></i>
+                    <h1 class="text-2xl font-black italic tracking-tighter">HinataFocus</h1>
+                </div>
+                <button id="settings-btn" class="p-2 hover:bg-white/20 rounded-full transition-colors">
+                    <i data-lucide="settings"></i>
+                </button>
+            </div>
+            
+            <div class="flex bg-white/20 backdrop-blur-md rounded-2xl p-1 mt-6 relative z-10 border border-white/30">
+                <button id="mode-timer" class="flex-1 py-2 rounded-xl text-xs font-bold bg-white text-[#7CC7E8]">タイマー</button>
+                <button id="mode-stopwatch" class="flex-1 py-2 rounded-xl text-xs font-bold text-white">計測</button>
+            </div>
+        </div>
+
+        <!-- Main Display -->
+        <div class="p-10 flex flex-col items-center">
+            <div id="status-label" class="mb-4 h-6 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-blue-50 text-[#7CC7E8]">
+                💙 Focus Mode
+            </div>
+            
+            <div class="relative w-64 h-64 flex items-center justify-center mb-10">
+                <svg class="w-full h-full">
+                    <circle cx="128" cy="128" r="110" fill="none" stroke="#F0F9FF" stroke-width="12"></circle>
+                    <circle id="progress-bar" cx="128" cy="128" r="110" fill="none" stroke="#7CC7E8" stroke-width="12" stroke-linecap="round" class="progress-ring__circle"></circle>
+                </svg>
+                <div id="time-display" class="absolute text-7xl font-black tracking-tighter tabular-nums text-gray-800">
+                    25:00
+                </div>
+            </div>
+
+            <div class="flex gap-6">
+                <button id="start-btn" class="w-20 h-20 rounded-full bg-[#7CC7E8] text-white shadow-lg flex items-center justify-center active:scale-90 transition-all">
+                    <i data-lucide="play" class="fill-white ml-1" size="36"></i>
+                </button>
+                <button id="reset-btn" class="w-20 h-20 rounded-full bg-white border-2 border-gray-100 text-gray-300 flex items-center justify-center active:scale-90 transition-all">
+                    <i data-lucide="rotate-ccw" size="32"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Settings Modal (Hidden by default) -->
+        <div id="settings-modal" class="hidden absolute inset-0 z-30 bg-white p-8 flex flex-col">
+            <div class="flex justify-between items-center mb-10 text-[#7CC7E8]">
+                <h2 class="text-2xl font-extrabold">Settings</h2>
+                <button id="close-settings"><i data-lucide="x" size="28"></i></button>
+            </div>
+            <div class="space-y-10 flex-1">
+                <div class="space-y-4">
+                    <div class="flex justify-between font-bold text-gray-400 text-xs">FOCUS TIME: <span id="focus-val">25</span>m</div>
+                    <input type="range" id="focus-input" min="1" max="60" value="25" class="w-full">
+                </div>
+                <div class="space-y-4">
+                    <div class="flex justify-between font-bold text-gray-400 text-xs">BREAK TIME: <span id="break-val">5</span>m</div>
+                    <input type="range" id="break-input" min="1" max="30" value="5" class="w-full">
+                </div>
+            </div>
+            <button id="save-settings" class="w-full py-5 bg-[#7CC7E8] text-white rounded-2xl font-black shadow-lg">設定を保存</button>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let appMode = 'timer';
+        let timerMode = 'focus';
+        let focusMin = 25;
+        let breakMin = 5;
+        let timeLeft = 25 * 60;
+        let stopwatchTime = 0;
+        let isActive = false;
+        let timerId = null;
+
+        const circumference = 2 * Math.PI * 110;
+        const progressBar = document.getElementById('progress-bar');
+        progressBar.style.strokeDasharray = `${circumference} ${circumference}`;
+
+        // Elements
+        const timeDisplay = document.getElementById('time-display');
+        const startBtn = document.getElementById('start-btn');
+        const statusLabel = document.getElementById('status-label');
+
+        function updateDisplay() {
+            const currentSeconds = appMode === 'timer' ? timeLeft : stopwatchTime;
+            const mins = Math.floor(currentSeconds / 60);
+            const secs = currentSeconds % 60;
+            timeDisplay.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+            const total = appMode === 'timer' ? (timerMode === 'focus' ? focusMin : breakMin) * 60 : 60;
+            const progress = appMode === 'timer' ? (timeLeft / total) : (stopwatchTime % 60 / 60);
+            const offset = circumference - (progress * circumference);
+            progressBar.style.strokeDashoffset = appMode === 'timer' ? offset : circumference - ((stopwatchTime % 60) / 60 * circumference);
+            
+            progressBar.setAttribute('stroke', appMode === 'stopwatch' ? '#7CC7E8' : (timerMode === 'focus' ? '#7CC7E8' : '#FFB7C5'));
+        }
+
+        function toggleTimer() {
+            isActive = !isActive;
+            startBtn.innerHTML = isActive ? '<i data-lucide="pause" class="fill-white"></i>' : '<i data-lucide="play" class="fill-white ml-1"></i>';
+            lucide.createIcons();
+            
+            if (isActive) {
+                timerId = setInterval(() => {
+                    if (appMode === 'timer') {
+                        timeLeft--;
+                        if (timeLeft <= 0) {
+                            clearInterval(timerId);
+                            isActive = false;
+                            timerMode = timerMode === 'focus' ? 'break' : 'focus';
+                            timeLeft = (timerMode === 'focus' ? focusMin : breakMin) * 60;
+                            statusLabel.textContent = timerMode === 'focus' ? '💙 Focus Mode' : '💗 Hinata-Bokko';
+                            statusLabel.className = `mb-4 h-6 px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${timerMode === 'focus' ? 'bg-blue-50 text-[#7CC7E8]' : 'bg-pink-50 text-[#FFB7C5]'}`;
+                            toggleTimer();
+                        }
+                    } else {
+                        stopwatchTime++;
+                    }
+                    updateDisplay();
+                }, 1000);
+            } else {
+                clearInterval(timerId);
+            }
+        }
+
+        // Event Listeners
+        startBtn.onclick = toggleTimer;
+        document.getElementById('reset-btn').onclick = () => {
+            clearInterval(timerId);
+            isActive = false;
+            timeLeft = (timerMode === 'focus' ? focusMin : breakMin) * 60;
+            stopwatchTime = 0;
+            startBtn.innerHTML = '<i data-lucide="play" class="fill-white ml-1"></i>';
+            lucide.createIcons();
+            updateDisplay();
+        };
+
+        document.getElementById('mode-timer').onclick = (e) => {
+            appMode = 'timer';
+            e.target.className = "flex-1 py-2 rounded-xl text-xs font-bold bg-white text-[#7CC7E8]";
+            document.getElementById('mode-stopwatch').className = "flex-1 py-2 rounded-xl text-xs font-bold text-white";
+            updateDisplay();
+        };
+
+        document.getElementById('mode-stopwatch').onclick = (e) => {
+            appMode = 'stopwatch';
+            e.target.className = "flex-1 py-2 rounded-xl text-xs font-bold bg-white text-[#7CC7E8]";
+            document.getElementById('mode-timer').className = "flex-1 py-2 rounded-xl text-xs font-bold text-white";
+            updateDisplay();
+        };
+
+        // Settings Logic
+        document.getElementById('settings-btn').onclick = () => document.getElementById('settings-modal').classList.remove('hidden');
+        document.getElementById('close-settings').onclick = () => document.getElementById('settings-modal').classList.add('hidden');
+        document.getElementById('focus-input').oninput = (e) => { focusMin = e.target.value; document.getElementById('focus-val').textContent = e.target.value; };
+        document.getElementById('break-input').oninput = (e) => { breakMin = e.target.value; document.getElementById('break-val').textContent = e.target.value; };
+        document.getElementById('save-settings').onclick = () => {
+            timeLeft = (timerMode === 'focus' ? focusMin : breakMin) * 60;
+            updateDisplay();
+            document.getElementById('settings-modal').classList.add('hidden');
+        };
+
+        // Init
+        lucide.createIcons();
+        updateDisplay();
+    </script>
+</body>
+</html>
